@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vlta-python-deploy
+  namespace: vlta-dev
+  labels:
+    app: vlta-python
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vlta-python
+  template:
+    metadata:
+      labels:
+        app: vlta-python
+    spec:
+      # 跨节点打散反亲和性配置 (体验 2 节点高可用)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - vlta-python
+              topologyKey: "kubernetes.io/hostname"
+
+      imagePullSecrets:
+      - name: acr-secret
+
+      containers:
+      - name: python-app
+        image: acrvlta04.azurecr.io/vlta-python:v1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+
+        env:
+        - name: APP_VERSION
+          value: "v1.0.0"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi # 限制 256M 便于触发 OOM 故障演练
+
+        # 消除 502 的关键双探针与优雅停机
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          failureThreshold: 2
+
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "10"] # 预留 10s 让 LoadBalancer 摘除端点
+
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+
