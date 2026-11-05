@@ -16,19 +16,14 @@ spec:
       labels:
         app: vlta-python
     spec:
-      # 跨节点打散反亲和性配置 (体验 2 节点高可用)
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - vlta-python
-              topologyKey: "kubernetes.io/hostname"
+      # 严格跨节点打散约束 (实现严格 2 + 2 节点均分)
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: "kubernetes.io/hostname"
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: vlta-python
 
       imagePullSecrets:
       - name: acr-secret
